@@ -81,7 +81,9 @@ def _torch_paged(
         K = K.to(dtype)
         V = V.to(dtype)
         scale = head_dim ** -0.5
-        attn = (Q_seq @ K.transpose(-2, -1)) * scale  # [n_q, n_heads, seq_len]
+        # 正确 matmul: Q[n_q,n_heads,d] @ K[seq_len,n_heads,d]^T -> [n_q,n_heads,seq_len]
+        # 原 Q@K.T 在 n_q==seq_len 时得到 [n_q,n_heads,n_heads]，维度错误
+        attn = torch.einsum("qhd,khd->qhk", Q_seq, K) * scale  # [n_q, n_heads, seq_len]
         # Causal mask: query 局部位置 i(对应全局 ctx+i) 只能 attend 到 key 0..ctx+i
         # mask 形状 [n_q, 1, seq_len] 以与 attn [n_q, n_heads, seq_len] 广播
         ctx = context_lens[seq_idx]

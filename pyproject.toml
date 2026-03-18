@@ -23,6 +23,7 @@ download = ["modelscope>=1.9.0"]
 
 [project.scripts]
 nano-infer-api = "nano_infer.entrypoints.openai_api:main"
+nano-infer-run = "nano_infer.entrypoints.offline_run:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
