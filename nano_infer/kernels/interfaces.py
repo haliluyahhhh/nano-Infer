@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import torch
@@ -97,7 +98,17 @@ def _torch_paged(
         ).reshape(n_q, seq_len).unsqueeze(1)
         attn = attn + mask
         attn = F.softmax(attn, dim=-1)
-        out = attn @ V
+        if os.environ.get("NANO_INFER_DEBUG_SHAPES") == "1":
+            if attn.shape != (n_q, n_heads, seq_len):
+                raise RuntimeError(
+                    f"attn shape mismatch: got {tuple(attn.shape)}, expect {(n_q, n_heads, seq_len)}"
+                )
+            if V.shape != (seq_len, n_heads, head_dim):
+                raise RuntimeError(
+                    f"V shape mismatch: got {tuple(V.shape)}, expect {(seq_len, n_heads, head_dim)}"
+                )
+        # 正确乘法: [q,h,k] x [k,h,d] -> [q,h,d]
+        out = torch.einsum("qhk,khd->qhd", attn, V)
         outputs.append(out)
 
     return torch.cat(outputs, dim=0)
