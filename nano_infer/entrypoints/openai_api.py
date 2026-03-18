@@ -9,6 +9,7 @@ import json
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, List, Optional
 
 from fastapi import FastAPI
@@ -19,11 +20,28 @@ from nano_infer.config import config_from_env
 from nano_infer.engine.async_llm_engine import AsyncLLMEngine, build_engine
 from nano_infer.tokenizer import get_tokenizer
 
-app = FastAPI(title="nano-Infer", version="0.1.0")
 _engine: AsyncLLMEngine | None = None
 _encode_fn = None
 _decode_fn = None
 _eos_token_id: Optional[int] = None
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    global _engine, _encode_fn, _decode_fn, _eos_token_id
+    cfg = config_from_env()
+    if os.environ.get("NANO_INFER_MODEL"):
+        cfg.model_name = os.environ["NANO_INFER_MODEL"]
+    _encode_fn, _decode_fn, _eos_token_id = get_tokenizer(
+        cfg.model_path,
+        vocab_size=cfg.vocab_size,
+    )
+    _engine, _ = build_engine(cfg)
+    yield
+    # shutdown（如有资源释放可在此执行）
+
+
+app = FastAPI(title="nano-Infer", version="0.1.0", lifespan=_lifespan)
 
 
 class ChatMessage(BaseModel):
@@ -37,19 +55,6 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=64, ge=1, le=8192)
     temperature: Optional[float] = Field(default=0.0, ge=0.0, le=2.0)
     stream: bool = False
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    global _engine, _encode_fn, _decode_fn, _eos_token_id
-    cfg = config_from_env()
-    if os.environ.get("NANO_INFER_MODEL"):
-        cfg.model_name = os.environ["NANO_INFER_MODEL"]
-    _encode_fn, _decode_fn, _eos_token_id = get_tokenizer(
-        cfg.model_path,
-        vocab_size=cfg.vocab_size,
-    )
-    _engine, _ = build_engine(cfg)
 
 
 def _messages_to_prompt(messages: List[ChatMessage]) -> str:
