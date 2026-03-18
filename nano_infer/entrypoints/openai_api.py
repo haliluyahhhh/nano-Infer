@@ -8,12 +8,13 @@ from __future__ import annotations
 import json
 import os
 import time
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, List, Optional
 
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from nano_infer.config import config_from_env
@@ -71,11 +72,18 @@ def health() -> dict:
 
 @app.post("/v1/chat/completions")
 async def chat_completions(body: ChatCompletionRequest) -> Any:
-    assert _engine is not None and _encode_fn is not None and _decode_fn is not None
-    prompt = _messages_to_prompt(body.messages)
-    prompt_ids = _encode_fn(prompt)
+    import traceback
 
-    if body.stream:
+    if _engine is None or _encode_fn is None or _decode_fn is None:
+        return {"error": "Engine not initialized", "detail": "Startup may have failed."}
+    try:
+        prompt = _messages_to_prompt(body.messages)
+        prompt_ids = _encode_fn(prompt)
+    except Exception as e:
+        return {"error": str(e), "detail": traceback.format_exc()}
+
+    try:
+        if body.stream:
 
         async def gen() -> AsyncIterator[str]:
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"

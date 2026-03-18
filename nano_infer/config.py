@@ -94,12 +94,16 @@ def config_from_env() -> EngineConfig:
     sch = os.environ.get("NANO_INFER_SCHEDULER", "fcfs")
     mem = os.environ.get("NANO_INFER_MEMORY", "paged")
     backend = os.environ.get("NANO_INFER_ATTENTION_BACKEND", "torch")
+    dev = os.environ.get("NANO_INFER_DEVICE", "cpu")
+    # CPU 上使用 float32，避免 float16 导致的数值/算子问题
+    dtype = "float32" if dev == "cpu" else os.environ.get("NANO_INFER_DTYPE", "float16")
     cfg = EngineConfig(
         scheduler=sch if sch in ("fcfs", "radix") else "fcfs",  # type: ignore
         memory=mem if mem in ("paged", "radix") else "paged",  # type: ignore
         attention_backend=backend if backend in ("torch", "triton", "flashinfer") else "torch",  # type: ignore
         max_num_seqs=_i("NANO_INFER_MAX_SEQS", 8),
-        device=os.environ.get("NANO_INFER_DEVICE", "cpu"),
+        device=dev,
+        dtype=dtype,
     )
     if os.environ.get("NANO_INFER_MODEL_PATH"):
         cfg.model_path = os.environ["NANO_INFER_MODEL_PATH"]
