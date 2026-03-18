@@ -72,8 +72,6 @@ def health() -> dict:
 
 @app.post("/v1/chat/completions")
 async def chat_completions(body: ChatCompletionRequest) -> Any:
-    import traceback
-
     if _engine is None or _encode_fn is None or _decode_fn is None:
         return {"error": "Engine not initialized", "detail": "Startup may have failed."}
     try:
@@ -84,68 +82,70 @@ async def chat_completions(body: ChatCompletionRequest) -> Any:
 
     try:
         if body.stream:
-
-        async def gen() -> AsyncIterator[str]:
-            cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-            created = int(time.time())
-            buffer: List[int] = []
-            async for tid in _engine.generate_tokens(
-                prompt_ids,
-                max_tokens=body.max_tokens,
-                temperature=body.temperature,
-                eos_token_id=_eos_token_id,
-            ):
-                buffer.append(tid)
-                chunk = {
+            async def gen() -> AsyncIterator[str]:
+                cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+                created = int(time.time())
+                async for tid in _engine.generate_tokens(
+                    prompt_ids,
+                    max_tokens=body.max_tokens,
+                    temperature=body.temperature,
+                    eos_token_id=_eos_token_id,
+                ):
+                    chunk = {
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": body.model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": _decode_fn([tid])},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                end = {
                     "id": cid,
                     "object": "chat.completion.chunk",
                     "created": created,
                     "model": body.model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": _decode_fn([tid])},
-                            "finish_reason": None,
-                        }
-                    ],
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                 }
-                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-            end = {
-                "id": cid,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": body.model,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            }
-            yield f"data: {json.dumps(end, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
+                yield f"data: {json.dumps(end, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
 
-        return StreamingResponse(gen(), media_type="text/event-stream")
+            return StreamingResponse(gen(), media_type="text/event-stream")
 
-    out: List[int] = []
-    async for tid in _engine.generate_tokens(
-        prompt_ids,
-        max_tokens=body.max_tokens,
-        temperature=body.temperature,
-        eos_token_id=_eos_token_id,
-    ):
-        out.append(tid)
-    cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    content = _decode_fn(out) if out else ""
-    return {
-        "id": cid,
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": body.model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": len(prompt_ids), "completion_tokens": len(out), "total_tokens": len(prompt_ids) + len(out)},
-    }
+        out: List[int] = []
+        async for tid in _engine.generate_tokens(
+            prompt_ids,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+            eos_token_id=_eos_token_id,
+        ):
+            out.append(tid)
+        cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+        content = _decode_fn(out) if out else ""
+        return {
+            "id": cid,
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": body.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": len(prompt_ids), "completion_tokens": len(out), "total_tokens": len(prompt_ids) + len(out)},
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "detail": traceback.format_exc()},
+        )
 
 
 def main() -> None:
