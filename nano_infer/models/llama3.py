@@ -35,14 +35,14 @@ def _rotary_embeddings(
     cos: torch.Tensor,
     sin: torch.Tensor,
 ) -> torch.Tensor:
-    """对 x 应用 RoPE。x: [T, H, D]，cos/sin: [T, D//2]。"""
+    """对 x 应用 RoPE。x: [T, H, D]，cos/sin: [T, D//2]，按坐标对 (2i,2i+1) 旋转。"""
     half = x.shape[-1] // 2
     x1 = x[..., half:]
     x2 = x[..., :half]
     x_rot = torch.cat([-x1, x2], dim=-1)
-    # cos/sin [T, D/2] -> [T, 1, D/2] 以对齐 x 的 head 维度
-    cos_b = cos.unsqueeze(1).expand(*x.shape[:-1], half)
-    sin_b = sin.unsqueeze(1).expand(*x.shape[:-1], half)
+    # cos/sin [T, D/2] 每元素对应一对坐标，需扩展到 [T, H, D] 以便与 x 广播
+    cos_b = cos.unsqueeze(1).repeat_interleave(2, dim=-1).expand(*x.shape[:-1], x.shape[-1])
+    sin_b = sin.unsqueeze(1).repeat_interleave(2, dim=-1).expand(*x.shape[:-1], x.shape[-1])
     return x * cos_b + x_rot * sin_b
 
 
