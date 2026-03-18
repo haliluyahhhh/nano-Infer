@@ -21,6 +21,6 @@ class AttentionMetadata:
     max_seqlen_k: int
     block_tables: torch.Tensor  # [num_seqs, max_num_blocks_per_seq]
     slot_mapping: torch.Tensor  # [total_tokens] 新 token 写入 KV pool 的 slot
-    block_size: int = 16
     device: torch.device
     dtype: torch.dtype
+    block_size: int = 16
