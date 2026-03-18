@@ -102,6 +102,7 @@ class ModelRunner:
             max_seqlen_k=max_k,
             block_tables=block_tables,
             slot_mapping=torch.tensor(slots, device=self.device, dtype=torch.long),
+            block_size=block_size,
             device=self.device,
             dtype=self.dtype,
         )
@@ -112,9 +113,12 @@ class ModelRunner:
         input_ids, positions = self.prepare_inputs(sched_out)
         if self.kv_cache_pool is None:
             nb = self.config.num_gpu_blocks
-            # 占位 layout：单层单槽，供 Dummy 忽略
+            n_layer = self.config.num_hidden_layers
+            n_heads = self.config.num_kv_heads
+            hd = self.config.head_dim
+            # [num_layers, 2(K/V), num_blocks, block_size, num_heads, head_dim]
             self.kv_cache_pool = torch.zeros(
-                1, 2, nb, self.config.block_size, 1, 64,
+                n_layer, 2, nb, self.config.block_size, n_heads, hd,
                 device=self.device,
                 dtype=self.dtype,
             )

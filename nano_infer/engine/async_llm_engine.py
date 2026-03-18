@@ -115,9 +115,18 @@ class AsyncLLMEngine:
         )
 
     async def generate_tokens(
-        self, prompt_ids: List[int], max_tokens: Optional[int] = None, temperature: Optional[float] = None
+        self,
+        prompt_ids: List[int],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        eos_token_id: Optional[int] = None,
     ) -> AsyncIterator[int]:
-        seq = self.create_sequence(prompt_ids, max_tokens=max_tokens, temperature=temperature)
+        seq = self.create_sequence(
+            prompt_ids,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            eos_token_id=eos_token_id,
+        )
         self.add_sequence(seq)
         loop = asyncio.get_event_loop()
         while seq.status != SequenceStatus.FINISHED:
@@ -132,12 +141,25 @@ class AsyncLLMEngine:
 
 def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
     import nano_infer.models  # noqa: F401 — 注册 dummy/llama3/qwen3
+    from nano_infer.config import load_model_config_from_path
     from nano_infer.models.registry import get_model_class
+    from nano_infer.models.weight_loader import load_hf_weights
 
-    cls = get_model_class(config.model_name)
-    model = cls(config)
-    model.to(torch.device(config.device))
-    runner = ModelRunner(model, config)
+    cfg = config
+    if cfg.model_path:
+        mc = load_model_config_from_path(cfg.model_path)
+        cfg.merge_from_model_config(mc)
+        cfg.model_name = cfg.model_name or "llama3"
+
+    cls = get_model_class(cfg.model_name)
+    model = cls(cfg)
+    model.to(torch.device(cfg.device))
+
+    if cfg.model_path:
+        weights = load_hf_weights(cfg.model_path, device=cfg.device)
+        model.load_weights(weights)
+
+    runner = ModelRunner(model, cfg)
     bm = BlockManager(config.num_gpu_blocks, config.block_size)
 
     if config.effective_scheduler() == "radix":

@@ -15,9 +15,82 @@ def _torch_reference(
     key: torch.Tensor,
     value: torch.Tensor,
 ) -> torch.Tensor:
-    """MVP：逐位置自注意力占位（等价于只看当前 K/V），保证形状正确。"""
+    """占位：逐位置自注意力（只看当前 K/V），无真实 KV 缓存时使用。"""
     del key
     return value
+
+
+def _torch_paged(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    kv_cache: torch.Tensor,
+    attn_metadata: "AttentionMetadata",
+) -> torch.Tensor:
+    """
+    Paged KV Cache 的 torch 参考实现：scatter → gather → causal attention。
+    kv_cache: [2, num_blocks, block_size, num_heads, head_dim]
+    """
+    import torch.nn.functional as F
+
+    n_heads = query.shape[1]
+    head_dim = query.shape[2]
+    block_size = attn_metadata.block_size
+    device = query.device
+    dtype = query.dtype
+
+    # 1. Scatter: 将新 K/V 写入 cache
+    slots = attn_metadata.slot_mapping
+    for i in range(attn_metadata.total_tokens):
+        slot = int(slots[i].item())
+        blk = slot // block_size
+        off = slot % block_size
+        kv_cache[0, blk, off, :, :] = key[i]
+        kv_cache[1, blk, off, :, :] = value[i]
+
+    # 2. Gather: 为每个 seq 构建完整 K/V 并做 causal attention
+    outputs: list[torch.Tensor] = []
+    seq_lens = attn_metadata.seq_lens.cpu().tolist()
+    context_lens = attn_metadata.context_lens.cpu().tolist()
+    block_tables = attn_metadata.block_tables
+
+    offset = 0
+    for seq_idx in range(attn_metadata.num_seqs):
+        seq_len = seq_lens[seq_idx]
+        n_blocks = (seq_len + block_size - 1) // block_size
+
+        # 从 cache 收集 K/V
+        k_list: list[torch.Tensor] = []
+        v_list: list[torch.Tensor] = []
+        for p in range(seq_len):
+            blk_idx = p // block_size
+            off = p % block_size
+            phys_blk = block_tables[seq_idx, blk_idx].item()
+            k_list.append(kv_cache[0, phys_blk, off, :, :])
+            v_list.append(kv_cache[1, phys_blk, off, :, :])
+        K = torch.stack(k_list, dim=0)
+        V = torch.stack(v_list, dim=0)
+
+        # 本步的 Q（prefill 多 token / decode 单 token）
+        n_q = seq_len - context_lens[seq_idx]
+        if n_q == 0:
+            continue
+        Q_seq = query[offset : offset + n_q]
+        offset += n_q
+
+        scale = head_dim ** -0.5
+        attn = (Q_seq @ K.transpose(-2, -1)) * scale
+        # Causal mask
+        mask = torch.triu(
+            torch.full((n_q, seq_len), float("-inf"), device=device, dtype=dtype),
+            diagonal=seq_len - n_q + 1,
+        )
+        attn = attn + mask
+        attn = F.softmax(attn, dim=-1)
+        out = attn @ V
+        outputs.append(out)
+
+    return torch.cat(outputs, dim=0)
 
 
 def paged_attention(
@@ -31,8 +104,9 @@ def paged_attention(
     """
     query/key/value: [total_tokens, num_heads, head_dim]。
     """
-    del kv_cache
     if backend == "torch":
+        if attn_metadata is not None and kv_cache is not None and kv_cache.numel() > 1:
+            return _torch_paged(query, key, value, kv_cache, attn_metadata)
         return _torch_reference(query, key, value)
     if backend == "triton":
         return _triton_paged(query, key, value, attn_metadata)

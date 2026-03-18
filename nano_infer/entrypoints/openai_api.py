@@ -1,6 +1,6 @@
 """
 OpenAI 兼容 HTTP 入口（Chat Completions + 流式 SSE）。
-不含框架特定逻辑；Tokenizer 为极简占位，生产请接 HuggingFaceTokenizer。
+当 model_path 设置时使用 HuggingFace Tokenizer；否则使用字符级占位。
 """
 
 from __future__ import annotations
@@ -15,16 +15,15 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from nano_infer.config import EngineConfig, config_from_env
+from nano_infer.config import config_from_env
 from nano_infer.engine.async_llm_engine import AsyncLLMEngine, build_engine
+from nano_infer.tokenizer import get_tokenizer
 
 app = FastAPI(title="nano-Infer", version="0.1.0")
 _engine: AsyncLLMEngine | None = None
-
-
-def _encode_prompt(text: str, vocab_size: int = 50257) -> List[int]:
-    """占位：字符 → id，仅用于无 tokenizer 时打通链路。"""
-    return [min(vocab_size - 1, ord(c) % vocab_size) for c in text[:2048]]
+_encode_fn = None
+_decode_fn = None
+_eos_token_id: Optional[int] = None
 
 
 class ChatMessage(BaseModel):
@@ -42,10 +41,14 @@ class ChatCompletionRequest(BaseModel):
 
 @app.on_event("startup")
 def _startup() -> None:
-    global _engine
+    global _engine, _encode_fn, _decode_fn, _eos_token_id
     cfg = config_from_env()
     if os.environ.get("NANO_INFER_MODEL"):
         cfg.model_name = os.environ["NANO_INFER_MODEL"]
+    _encode_fn, _decode_fn, _eos_token_id = get_tokenizer(
+        cfg.model_path,
+        vocab_size=cfg.vocab_size,
+    )
     _engine, _ = build_engine(cfg)
 
 
@@ -63,18 +66,23 @@ def health() -> dict:
 
 @app.post("/v1/chat/completions")
 async def chat_completions(body: ChatCompletionRequest) -> Any:
-    assert _engine is not None
+    assert _engine is not None and _encode_fn is not None and _decode_fn is not None
     prompt = _messages_to_prompt(body.messages)
-    prompt_ids = _encode_prompt(prompt)
+    prompt_ids = _encode_fn(prompt)
 
     if body.stream:
 
         async def gen() -> AsyncIterator[str]:
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
             created = int(time.time())
+            buffer: List[int] = []
             async for tid in _engine.generate_tokens(
-                prompt_ids, max_tokens=body.max_tokens, temperature=body.temperature
+                prompt_ids,
+                max_tokens=body.max_tokens,
+                temperature=body.temperature,
+                eos_token_id=_eos_token_id,
             ):
+                buffer.append(tid)
                 chunk = {
                     "id": cid,
                     "object": "chat.completion.chunk",
@@ -83,7 +91,7 @@ async def chat_completions(body: ChatCompletionRequest) -> Any:
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"content": f"[{tid}]"},
+                            "delta": {"content": _decode_fn([tid])},
                             "finish_reason": None,
                         }
                     ],
@@ -103,11 +111,14 @@ async def chat_completions(body: ChatCompletionRequest) -> Any:
 
     out: List[int] = []
     async for tid in _engine.generate_tokens(
-        prompt_ids, max_tokens=body.max_tokens, temperature=body.temperature
+        prompt_ids,
+        max_tokens=body.max_tokens,
+        temperature=body.temperature,
+        eos_token_id=_eos_token_id,
     ):
         out.append(tid)
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    content = "".join(f"[{t}]" for t in out)
+    content = _decode_fn(out) if out else ""
     return {
         "id": cid,
         "object": "chat.completion",
