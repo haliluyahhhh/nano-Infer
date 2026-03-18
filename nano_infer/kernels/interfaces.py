@@ -37,16 +37,16 @@ def _torch_paged(
     head_dim = query.shape[2]
     block_size = attn_metadata.block_size
     device = query.device
-    dtype = query.dtype
+    dtype = attn_metadata.dtype  # 与 kv_cache 一致，避免 Half/Float 混用
 
-    # 1. Scatter: 将新 K/V 写入 cache
+    # 1. Scatter: 将新 K/V 写入 cache（必要时转 dtype）
     slots = attn_metadata.slot_mapping
     for i in range(attn_metadata.total_tokens):
         slot = int(slots[i].item())
         blk = slot // block_size
         off = slot % block_size
-        kv_cache[0, blk, off, :, :] = key[i]
-        kv_cache[1, blk, off, :, :] = value[i]
+        kv_cache[0, blk, off, :, :] = key[i].to(dtype)
+        kv_cache[1, blk, off, :, :] = value[i].to(dtype)
 
     # 2. Gather: 为每个 seq 构建完整 K/V 并做 causal attention
     outputs: list[torch.Tensor] = []
@@ -75,9 +75,11 @@ def _torch_paged(
         n_q = seq_len - context_lens[seq_idx]
         if n_q == 0:
             continue
-        Q_seq = query[offset : offset + n_q]
+        Q_seq = query[offset : offset + n_q].to(dtype)
         offset += n_q
 
+        K = K.to(dtype)
+        V = V.to(dtype)
         scale = head_dim ** -0.5
         attn = (Q_seq @ K.transpose(-2, -1)) * scale
         # Causal mask

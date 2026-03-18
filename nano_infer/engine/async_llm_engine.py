@@ -155,11 +155,14 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
 
     cls = get_model_class(cfg.model_name)
     model = cls(cfg)
-    model.to(torch.device(cfg.device))
+    device = torch.device(cfg.device)
+    dtype = getattr(torch, cfg.dtype) if hasattr(torch, cfg.dtype) else torch.float32
+    model.to(device=device, dtype=dtype)
 
     if cfg.model_path:
         weights = load_hf_weights(cfg.model_path, device=cfg.device)
         model.load_weights(weights)
+        model.to(device=device, dtype=dtype)  # HF 权重复制后确保 dtype 一致
 
     runner = ModelRunner(model, cfg)
     bm = BlockManager(config.num_gpu_blocks, config.block_size)
