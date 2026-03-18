@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any, Dict
 
 import torch
@@ -200,8 +201,19 @@ class Llama3ForCausalLM(BaseCausalLM):
     def load_weights(self, state_dict: Dict[str, Any]) -> None:
         from nano_infer.models.weight_loader import map_hf_llama_to_nano
 
-        mapped = map_hf_llama_to_nano(state_dict)
-        self.load_state_dict(mapped, strict=False)
+        # build_engine/load_hf_weights 可能已返回映射后的键（layers.* / embed_tokens.*）；
+        # 若再次映射会丢失绝大多数参数，导致模型近似随机输出。
+        if any(k.startswith("layers.") or k.startswith("embed_tokens.") for k in state_dict.keys()):
+            mapped = state_dict
+        else:
+            mapped = map_hf_llama_to_nano(state_dict)
+        ret = self.load_state_dict(mapped, strict=False)
+        if os.environ.get("NANO_INFER_DEBUG_WEIGHTS") == "1":
+            print(
+                "[nano-infer] weight load:",
+                f"provided={len(state_dict)} mapped={len(mapped)}",
+                f"missing={len(ret.missing_keys)} unexpected={len(ret.unexpected_keys)}",
+            )
 
 
 @register_model("dummy")

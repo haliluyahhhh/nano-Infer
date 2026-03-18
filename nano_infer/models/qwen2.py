@@ -21,6 +21,10 @@ class Qwen2ForCausalLM(Llama3ForCausalLM):
     def load_weights(self, state_dict: Dict[str, Any]) -> None:
         from nano_infer.models.weight_loader import map_hf_llama_to_nano
 
-        # Qwen2 权重键与 Llama 完全一致
-        mapped = map_hf_llama_to_nano(state_dict)
+        # Qwen2 权重键在 nano-Infer 内部与 Llama 同构。
+        # 若 state_dict 已是 nano 键，直接加载；否则做一次 HF->nano 映射。
+        if any(k.startswith("layers.") or k.startswith("embed_tokens.") for k in state_dict.keys()):
+            mapped = state_dict
+        else:
+            mapped = map_hf_llama_to_nano(state_dict)
         self.load_state_dict(mapped, strict=False)

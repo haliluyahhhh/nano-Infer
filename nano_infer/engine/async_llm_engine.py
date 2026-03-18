@@ -151,7 +151,11 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
     if cfg.model_path:
         mc = load_model_config_from_path(cfg.model_path)
         cfg.merge_from_model_config(mc)
-        cfg.model_name = cfg.model_name or detect_model_type(cfg.model_path)
+        # 若提供了 model_path，优先按 config.json 自动识别模型类型。
+        # 这样可避免默认 "llama3" 覆盖 qwen2 等真实模型类型。
+        detected = detect_model_type(cfg.model_path)
+        if cfg.model_name in ("dummy", "llama3") or not cfg.model_name:
+            cfg.model_name = detected
 
     cls = get_model_class(cfg.model_name)
     model = cls(cfg)

@@ -64,7 +64,8 @@ def main() -> int:
 
     if args.model_path:
         os.environ["NANO_INFER_MODEL_PATH"] = args.model_path
-        os.environ["NANO_INFER_MODEL"] = "llama3"  # 或由 detect 自动识别
+        # 不强制写死模型类型，交由 build_engine 按 config.json 自动识别
+        os.environ.pop("NANO_INFER_MODEL", None)
     if args.device:
         os.environ["NANO_INFER_DEVICE"] = args.device
 
