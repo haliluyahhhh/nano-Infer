@@ -81,12 +81,13 @@ def _torch_paged(
         K = K.to(dtype)
         V = V.to(dtype)
         scale = head_dim ** -0.5
-        attn = (Q_seq @ K.transpose(-2, -1)) * scale
-        # Causal mask
+        attn = (Q_seq @ K.transpose(-2, -1)) * scale  # [n_q, n_heads, seq_len]
+        # Causal mask: 每个 query 位置 i 只能 attend 到 key 0..i
+        # mask [n_q, seq_len]，需 unsqueeze(1) 以与 attn [n_q, n_heads, seq_len] 广播
         mask = torch.triu(
             torch.full((n_q, seq_len), float("-inf"), device=device, dtype=dtype),
             diagonal=seq_len - n_q + 1,
-        )
+        ).unsqueeze(1)
         attn = attn + mask
         attn = F.softmax(attn, dim=-1)
         out = attn @ V
