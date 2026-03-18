@@ -82,12 +82,17 @@ def _torch_paged(
         V = V.to(dtype)
         scale = head_dim ** -0.5
         attn = (Q_seq @ K.transpose(-2, -1)) * scale  # [n_q, n_heads, seq_len]
-        # Causal mask: 每个 query 位置 i 只能 attend 到 key 0..i
-        # mask [n_q, seq_len]，需 unsqueeze(1) 以与 attn [n_q, n_heads, seq_len] 广播
-        mask = torch.triu(
-            torch.full((n_q, seq_len), float("-inf"), device=device, dtype=dtype),
-            diagonal=seq_len - n_q + 1,
-        ).unsqueeze(1)
+        # Causal mask: query 局部位置 i(对应全局 ctx+i) 只能 attend 到 key 0..ctx+i
+        # mask 形状 [n_q, 1, seq_len] 以与 attn [n_q, n_heads, seq_len] 广播
+        ctx = context_lens[seq_idx]
+        row = torch.arange(n_q, device=device, dtype=torch.long).unsqueeze(1)
+        col = torch.arange(seq_len, device=device, dtype=torch.long).unsqueeze(0)
+        causal = col <= ctx + row
+        mask = torch.where(
+            causal,
+            torch.zeros(1, device=device, dtype=dtype),
+            torch.full((1,), float("-inf"), device=device, dtype=dtype),
+        ).reshape(n_q, seq_len).unsqueeze(1)
         attn = attn + mask
         attn = F.softmax(attn, dim=-1)
         out = attn @ V
