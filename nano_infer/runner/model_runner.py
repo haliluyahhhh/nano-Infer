@@ -114,7 +114,8 @@ class ModelRunner:
         if self.kv_cache_pool is None:
             nb = self.config.num_gpu_blocks
             n_layer = self.config.num_hidden_layers
-            n_heads = self.config.num_kv_heads
+            # 模型传入已做 GQA 扩展的 k/v，cache 需用 num_attention_heads
+            n_heads = self.config.num_attention_heads
             hd = self.config.head_dim
             # [num_layers, 2(K/V), num_blocks, block_size, num_heads, head_dim]
             self.kv_cache_pool = torch.zeros(
