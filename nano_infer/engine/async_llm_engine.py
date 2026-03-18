@@ -140,16 +140,18 @@ class AsyncLLMEngine:
 
 
 def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
-    import nano_infer.models  # noqa: F401 — 注册 dummy/llama3/qwen3
+    import nano_infer.models  # noqa: F401 — 注册 dummy/llama3/qwen2/qwen3
     from nano_infer.config import load_model_config_from_path
     from nano_infer.models.registry import get_model_class
     from nano_infer.models.weight_loader import load_hf_weights
+
+    from nano_infer.models.model_config import detect_model_type
 
     cfg = config
     if cfg.model_path:
         mc = load_model_config_from_path(cfg.model_path)
         cfg.merge_from_model_config(mc)
-        cfg.model_name = cfg.model_name or "llama3"
+        cfg.model_name = cfg.model_name or detect_model_type(cfg.model_path)
 
     cls = get_model_class(cfg.model_name)
     model = cls(cfg)

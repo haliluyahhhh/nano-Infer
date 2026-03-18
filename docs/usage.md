@@ -9,8 +9,23 @@
 
 ```bash
 cd nano-Infer
-pip install -e ".[dev]"
+pip install -e ".[dev,tokenizer]"
 ```
+
+## 下载模型（ModelScope，≤7B）
+
+```bash
+pip install -e ".[download]"
+python scripts/download_model.py --local-dir ~/autodl-tmp/models/Qwen2-1.5B
+```
+
+支持 `--model` 指定模型 ID（默认 `Qwen/Qwen2-1.5B-Instruct`），`--local-dir` 指定本地目录。
+
+| 模型 ID | 参数量 | 说明 |
+|---------|--------|------|
+| `Qwen/Qwen2-1.5B-Instruct` | 1.5B | 默认，下载快 |
+| `Qwen/Qwen2-7B-Instruct` | 7B | 效果更好，显存需求高 |
+| `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | 1.1B | 轻量 |
 
 ## 快速启动 API（占位模型）
 

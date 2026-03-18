@@ -59,3 +59,23 @@ class ModelConfig:
             rms_norm_eps=float(raw.get("rms_norm_eps", 1e-6)),
             rope_theta=float(raw.get("rope_theta", 10000.0)),
         )
+
+
+def detect_model_type(model_path: str | Path) -> str:
+    """
+    从 config.json 的 model_type 推断 nano-Infer 模型名。
+    返回 "qwen2" | "llama3" | "dummy"。
+    """
+    p = Path(model_path)
+    if p.is_dir():
+        p = p / "config.json"
+    if not p.exists():
+        return "llama3"
+    with open(p, encoding="utf-8") as f:
+        raw = json.load(f)
+    mt = raw.get("model_type", "").lower()
+    arch = raw.get("architectures", [])
+    arch_str = " ".join(str(a) for a in arch).lower()
+    if "qwen2" in mt or "qwen2" in arch_str:
+        return "qwen2"
+    return "llama3"
