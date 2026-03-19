@@ -7,6 +7,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
+from nano_infer.debug import enabled as dbg_enabled
+from nano_infer.debug import log as dlog
+
 
 def _map_llama_hf_to_nano(hf_key: str) -> str | None:
     """
@@ -72,10 +75,16 @@ def _map_llama_hf_to_nano(hf_key: str) -> str | None:
 def map_hf_llama_to_nano(state_dict: Dict[str, Any]) -> Dict[str, Any]:
     """将 HF Llama state_dict 映射为 nano-Infer 键；供 load_weights 使用。"""
     out: Dict[str, Any] = {}
+    skipped = []
     for k, v in state_dict.items():
         our_key = _map_llama_hf_to_nano(k)
         if our_key:
             out[our_key] = v
+        else:
+            skipped.append(k)
+    dlog("weights", f"map_hf_to_nano: {len(state_dict)} -> {len(out)} mapped, {len(skipped)} skipped")
+    if dbg_enabled("weights") and skipped:
+        dlog("weights", f"  skipped keys (first 10): {skipped[:10]}")
     return out
 
 
@@ -92,11 +101,13 @@ def load_hf_weights(
     if not path.is_dir():
         raise FileNotFoundError(f"model_path must be a directory: {path}")
 
+    dlog("weights", f"loading weights from {path}, device={device}")
     state_dict: Dict[str, Any] = {}
 
     # 1. 尝试 safetensors（单文件或多文件）
     st_files = list(path.glob("*.safetensors"))
     if st_files:
+        dlog("weights", f"found {len(st_files)} safetensors files")
         try:
             from safetensors import safe_open
             from safetensors.torch import load_file
@@ -113,6 +124,7 @@ def load_hf_weights(
                         if our_key:
                             state_dict[our_key] = t
             if state_dict:
+                dlog("weights", f"safetensors loaded: {len(state_dict)} params, keys[:5]={list(state_dict.keys())[:5]}")
                 return state_dict
 
     # 2. pytorch_model.bin
@@ -137,6 +149,7 @@ def load_hf_weights(
             our_key = _map_llama_hf_to_nano(hf_key)
             if our_key:
                 state_dict[our_key] = t
+        dlog("weights", f"pytorch_model loaded: {len(state_dict)} params")
         return state_dict
 
     raise FileNotFoundError(

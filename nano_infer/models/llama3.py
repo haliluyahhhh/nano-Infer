@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any, Dict
 
 import torch
@@ -10,6 +9,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nano_infer.config import EngineConfig
+from nano_infer.debug import enabled as dbg_enabled
+from nano_infer.debug import log as dlog
+from nano_infer.debug import tensor_summary
 from nano_infer.kernels.interfaces import paged_attention
 from nano_infer.models.base import BaseCausalLM
 from nano_infer.models.registry import register_model
@@ -104,24 +106,22 @@ class LlamaAttention(nn.Module):
         k = self.k_proj(x).view(T, self.n_kv, self.head_dim)
         v = self.v_proj(x).view(T, self.n_kv, self.head_dim)
 
-        # GQA: 若 n_kv < n_heads，重复 k/v 以对齐 q 的头数
-        if self.n_kv < self.n_heads:
-            rep = self.n_heads // self.n_kv
-            k = k.repeat_interleave(rep, dim=1)
-            v = v.repeat_interleave(rep, dim=1)
+        # GQA 扩展不在这里做，由 paged_attention 内部处理。
+        # K/V 以紧凑的 n_kv 头存入 cache，节省内存。
 
-        # RoPE: 按 positions 应用（若 config 有 rope）
         if hasattr(self.config, "rope_theta") and self.config.rope_theta:
             max_pos = int(positions.max().item()) + 1
             cos, sin = _precompute_freqs(
                 self.head_dim, max_pos, base=getattr(self.config, "rope_theta", 10000.0), device=x.device
             )
-            # 取对应位置的 cos/sin
             pos_flat = positions.view(-1).long().clamp(0, cos.shape[0] - 1)
             cos_sel = cos[pos_flat]
             sin_sel = sin[pos_flat]
             q = _rotary_embeddings(q, cos_sel, sin_sel)
             k = _rotary_embeddings(k, cos_sel, sin_sel)
+
+        if dbg_enabled("model") and self.layer_idx == 0:
+            dlog("model", f"attn layer[0]: {tensor_summary(q, 'q')} {tensor_summary(k, 'k')}")
 
         h = paged_attention(
             q.unsqueeze(1) if q.dim() == 2 else q,
@@ -191,29 +191,32 @@ class Llama3ForCausalLM(BaseCausalLM):
         attn_metadata: "AttentionMetadata",
     ) -> torch.Tensor:
         x = self.embed_tokens(input_ids)
+        dlog("model", f"embed: {tensor_summary(x, 'x')}")
         for i, layer in enumerate(self.layers):
-            # 每层使用 kv_cache 的对应层
             layer_kv = kv_cache[i] if kv_cache.dim() >= 2 else kv_cache
             x = layer(x, positions, layer_kv, attn_metadata)
+            if dbg_enabled("model") and i == 0:
+                dlog("model", f"after layer[0]: {tensor_summary(x, 'x')}")
         x = self.norm(x)
-        return self.lm_head(x)
+        logits = self.lm_head(x)
+        dlog("model", f"lm_head: {tensor_summary(logits, 'logits')}")
+        return logits
 
     def load_weights(self, state_dict: Dict[str, Any]) -> None:
         from nano_infer.models.weight_loader import map_hf_llama_to_nano
 
-        # build_engine/load_hf_weights 可能已返回映射后的键（layers.* / embed_tokens.*）；
-        # 若再次映射会丢失绝大多数参数，导致模型近似随机输出。
         if any(k.startswith("layers.") or k.startswith("embed_tokens.") for k in state_dict.keys()):
             mapped = state_dict
+            dlog("weights", "state_dict already in nano format, skip re-mapping")
         else:
             mapped = map_hf_llama_to_nano(state_dict)
         ret = self.load_state_dict(mapped, strict=False)
-        if os.environ.get("NANO_INFER_DEBUG_WEIGHTS") == "1":
-            print(
-                "[nano-infer] weight load:",
-                f"provided={len(state_dict)} mapped={len(mapped)}",
-                f"missing={len(ret.missing_keys)} unexpected={len(ret.unexpected_keys)}",
-            )
+        dlog("weights", f"load_state_dict: provided={len(state_dict)} mapped={len(mapped)} "
+             f"missing={len(ret.missing_keys)} unexpected={len(ret.unexpected_keys)}")
+        if dbg_enabled("weights") and ret.missing_keys:
+            dlog("weights", f"  missing (first 10): {ret.missing_keys[:10]}")
+        if dbg_enabled("weights") and ret.unexpected_keys:
+            dlog("weights", f"  unexpected (first 10): {ret.unexpected_keys[:10]}")
 
 
 @register_model("dummy")

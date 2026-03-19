@@ -36,3 +36,34 @@
    ```
 
 ---
+
+## 2025-03-18 统一分模块调试系统
+
+**类型**：feat  
+**范围**：全仓库（新增 `debug.py`，插桩 8 个模块）
+
+### 做了什么
+新增 `nano_infer/debug.py` 统一调试系统，通过环境变量 `NANO_INFER_DEBUG` 控制输出，支持 9 个模块标签：
+
+| 标签 | 模块 | 输出内容 |
+|------|------|----------|
+| `tokenizer` | tokenizer.py | 编码/解码的输入输出、tokenizer 类型 |
+| `config` | config.py / build_engine | 模型配置合并、类型识别、device/dtype |
+| `weights` | weight_loader.py / llama3.py | 键映射统计、missing/unexpected/skipped |
+| `model` | llama3.py | embedding/layer[0]/lm_head 的 shape+数值摘要 |
+| `attention` | interfaces.py | Q/K/V shape、causal mask、attn_weights 数值 |
+| `runner` | model_runner.py | input_ids/positions、metadata、kv_cache 分配 |
+| `scheduler` | vllm_scheduler.py | PREFILL/DECODE 批次决策 |
+| `memory` | block_manager.py | 块分配/释放、剩余空闲数 |
+| `engine` | async_llm_engine.py | step 阶段、采样 token、top-5 logits |
+
+用法：
+```bash
+export NANO_INFER_DEBUG=all                    # 全部
+export NANO_INFER_DEBUG=weights,attention      # 仅特定模块
+nano-infer-run -m /path/to/model -p "你好" -n 32 -v
+```
+
+同时移除了旧的 `NANO_INFER_DEBUG_SHAPES` / `NANO_INFER_DEBUG_WEIGHTS` ad-hoc 检查，统一到新系统。
+
+---

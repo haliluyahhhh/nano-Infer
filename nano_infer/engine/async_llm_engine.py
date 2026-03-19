@@ -9,6 +9,7 @@ from typing import AsyncIterator, List, Optional, Tuple
 import torch
 
 from nano_infer.config import EngineConfig
+from nano_infer.debug import log as dlog
 from nano_infer.engine.memory.block_manager import BlockManager
 from nano_infer.engine.scheduler.base import SchedulerOutput
 from nano_infer.engine.sequence import Sequence, SequenceStatus
@@ -56,10 +57,14 @@ class AsyncLLMEngine:
         """
         sched_out = self._schedule()
         if sched_out is None:
+            dlog("engine", "step: no work scheduled",
+                 waiting=len(self._waiting), running=len(self._running))
             return any(s.status != SequenceStatus.FINISHED for s in self._running) or bool(
                 self._waiting
             )
 
+        dlog("engine", f"step: {'PREFILL' if sched_out.is_prefill else 'DECODE'} "
+             f"seqs={len(sched_out.sequences)} tokens={sched_out.num_tokens_per_seq}")
         logits = self.runner.execute_model(sched_out)
         last_idx = self._logits_indices_for_last_tokens(sched_out)
 
@@ -73,6 +78,8 @@ class AsyncLLMEngine:
                 if seq.is_prefill_done():
                     tid = self._sample(row, seq.temperature)
                     seq.output_ids.append(tid)
+                    dlog("engine", f"  seq[{seq.seq_id}] prefill done, first token={tid}, "
+                         f"logits_top5={torch.topk(row, 5).indices.tolist()}")
                     if seq.eos_token_id is not None and tid == seq.eos_token_id:
                         seq.status = SequenceStatus.FINISHED
                         self.block_manager.free_sequence(seq.seq_id)
@@ -85,6 +92,8 @@ class AsyncLLMEngine:
                 tid = self._sample(row, seq.temperature)
                 seq.output_ids.append(tid)
                 seq.num_computed_tokens += 1
+                dlog("engine", f"  seq[{seq.seq_id}] decode token={tid}, "
+                     f"pos={seq.num_computed_tokens}, out_len={len(seq.output_ids)}")
                 if seq.eos_token_id is not None and tid == seq.eos_token_id:
                     seq.status = SequenceStatus.FINISHED
                     self.block_manager.free_sequence(seq.seq_id)
@@ -151,25 +160,31 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
     if cfg.model_path:
         mc = load_model_config_from_path(cfg.model_path)
         cfg.merge_from_model_config(mc)
-        # 若提供了 model_path，优先按 config.json 自动识别模型类型。
-        # 这样可避免默认 "llama3" 覆盖 qwen2 等真实模型类型。
         detected = detect_model_type(cfg.model_path)
         if cfg.model_name in ("dummy", "llama3") or not cfg.model_name:
             cfg.model_name = detected
+        dlog("config", f"model_path={cfg.model_path} detected_type={detected} "
+             f"final_model_name={cfg.model_name}")
+        dlog("config", f"  hidden={cfg.hidden_size} layers={cfg.num_hidden_layers} "
+             f"heads={cfg.num_attention_heads} kv_heads={cfg.num_key_value_heads} "
+             f"vocab={cfg.vocab_size} intermediate={cfg.intermediate_size} "
+             f"rope_theta={cfg.rope_theta}")
 
     cls = get_model_class(cfg.model_name)
     model = cls(cfg)
     device = torch.device(cfg.device)
     dtype = getattr(torch, cfg.dtype) if hasattr(torch, cfg.dtype) else torch.float32
+    dlog("config", f"device={device} dtype={dtype}")
     model.to(device=device, dtype=dtype)
 
     if cfg.model_path:
         weights = load_hf_weights(cfg.model_path, device=cfg.device)
         model.load_weights(weights)
-        model.to(device=device, dtype=dtype)  # HF 权重复制后确保 dtype 一致
+        model.to(device=device, dtype=dtype)
 
     runner = ModelRunner(model, cfg)
     bm = BlockManager(config.num_gpu_blocks, config.block_size)
+    dlog("memory", f"BlockManager: {config.num_gpu_blocks} blocks x {config.block_size} tokens/block")
 
     if config.effective_scheduler() == "radix":
         from nano_infer.engine.scheduler.radix_scheduler import RadixScheduler

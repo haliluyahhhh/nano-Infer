@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Callable, List, Optional
 
+from nano_infer.debug import log as dlog
+
 
 def _fallback_encode(text: str, vocab_size: int = 50257) -> List[int]:
     """占位：字符 → id，无 tokenizer 时使用。"""
@@ -31,18 +33,26 @@ def get_tokenizer(
             from transformers import AutoTokenizer
 
             tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+            dlog("tokenizer", f"loaded HF tokenizer from {model_path}",
+                 vocab_size=tok.vocab_size,
+                 eos_token_id=getattr(tok, "eos_token_id", None))
 
             def encode(text: str) -> List[int]:
                 out = tok.encode(text, add_special_tokens=True)
-                return out[:2048]
+                out = out[:2048]
+                dlog("tokenizer", f"encode: {text!r:.80s} -> {len(out)} ids, first5={out[:5]}")
+                return out
 
             def decode(ids: List[int]) -> str:
-                return tok.decode(ids, skip_special_tokens=True)
+                result = tok.decode(ids, skip_special_tokens=True)
+                dlog("tokenizer", f"decode: {len(ids)} ids -> {result!r:.80s}")
+                return result
 
             eos = getattr(tok, "eos_token_id", None) or getattr(tok, "pad_token_id", None)
             return encode, decode, eos
-        except Exception:
-            pass
+        except Exception as e:
+            dlog("tokenizer", f"HF tokenizer failed: {e}, falling back to char-level")
+    dlog("tokenizer", "using fallback char-level tokenizer")
     return (
         lambda t: _fallback_encode(t, vocab_size),
         _fallback_decode,

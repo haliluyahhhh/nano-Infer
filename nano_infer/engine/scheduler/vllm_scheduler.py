@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
+from nano_infer.debug import log as dlog
 from nano_infer.engine.scheduler.base import SchedulerBase, SchedulerOutput, _ensure_blocks
 from nano_infer.engine.sequence import SequenceStatus
 
@@ -29,6 +30,7 @@ class VLLMScheduler(SchedulerBase):
 
         active = [s for s in ordered if s.status != SequenceStatus.FINISHED]
         if not active:
+            dlog("scheduler", "no active sequences")
             return None
 
         prefill_candidates = [s for s in active if not s.is_prefill_done()]
@@ -52,6 +54,8 @@ class VLLMScheduler(SchedulerBase):
                 num_tokens_per_seq.append(take)
                 total_tok += take
             if batch:
+                dlog("scheduler", f"PREFILL batch: {len(batch)} seqs, "
+                     f"tokens_per_seq={num_tokens_per_seq}, total={total_tok}")
                 return SchedulerOutput(batch, num_tokens_per_seq, is_prefill=True)
 
         decode_candidates = [s for s in active if s.is_prefill_done()]
@@ -76,4 +80,6 @@ class VLLMScheduler(SchedulerBase):
 
         if not batch:
             return None
+        dlog("scheduler", f"DECODE batch: {len(batch)} seqs, "
+             f"seq_ids={[s.seq_id for s in batch]}")
         return SchedulerOutput(batch, num_tokens_per_seq, is_prefill=False)

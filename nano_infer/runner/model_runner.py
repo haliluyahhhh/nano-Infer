@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, List, Tuple
 
 import torch
 
+from nano_infer.debug import log as dlog
+from nano_infer.debug import tensor_summary
 from nano_infer.runner.attention_meta import AttentionMetadata
 
 if TYPE_CHECKING:
@@ -53,6 +55,8 @@ class ModelRunner:
                 pos.append(seq.num_computed_tokens)
         t_ids = torch.tensor(ids, device=self.device, dtype=torch.long)
         t_pos = torch.tensor(pos, device=self.device, dtype=torch.long)
+        dlog("runner", f"prepare_inputs: ids={t_ids.tolist()[:8]}{'...' if len(ids) > 8 else ''} "
+             f"pos={t_pos.tolist()[:8]}{'...' if len(pos) > 8 else ''} total={len(ids)}")
         return t_ids, t_pos
 
     def prepare_metadata(self, sched_out: "SchedulerOutput") -> AttentionMetadata:
@@ -93,7 +97,7 @@ class ModelRunner:
         max_q = max(sched_out.num_tokens_per_seq)
         max_k = max(seq_lens_after)
 
-        return AttentionMetadata(
+        meta = AttentionMetadata(
             num_seqs=nseq,
             total_tokens=total,
             seq_lens=torch.tensor(seq_lens_after, device=self.device, dtype=torch.int32),
@@ -106,6 +110,10 @@ class ModelRunner:
             device=self.device,
             dtype=self.dtype,
         )
+        dlog("runner", f"metadata: num_seqs={nseq} total_tokens={total} "
+             f"seq_lens={seq_lens_after} context_lens={context_lens} "
+             f"max_q={max_q} max_k={max_k} slots={slots[:8]}{'...' if len(slots) > 8 else ''}")
+        return meta
 
     @torch.inference_mode()
     def execute_model(self, sched_out: "SchedulerOutput") -> torch.Tensor:
@@ -114,19 +122,21 @@ class ModelRunner:
         if self.kv_cache_pool is None:
             nb = self.config.num_gpu_blocks
             n_layer = self.config.num_hidden_layers
-            # 模型传入已做 GQA 扩展的 k/v，cache 需用 num_attention_heads
-            n_heads = self.config.num_attention_heads
+            n_kv_heads = self.config.num_kv_heads
             hd = self.config.head_dim
-            # [num_layers, 2(K/V), num_blocks, block_size, num_heads, head_dim]
             self.kv_cache_pool = torch.zeros(
-                n_layer, 2, nb, self.config.block_size, n_heads, hd,
+                n_layer, 2, nb, self.config.block_size, n_kv_heads, hd,
                 device=self.device,
                 dtype=self.dtype,
             )
+            dlog("runner", f"kv_cache_pool allocated: shape={list(self.kv_cache_pool.shape)} "
+                 f"n_q_heads={self.config.num_attention_heads} n_kv_heads={n_kv_heads} "
+                 f"dtype={self.dtype} device={self.device}")
         logits = self.model(
             input_ids=input_ids,
             positions=positions,
             kv_cache=self.kv_cache_pool,
             attn_metadata=attn_metadata,
         )
+        dlog("runner", f"model output: {tensor_summary(logits, 'logits')}")
         return logits
