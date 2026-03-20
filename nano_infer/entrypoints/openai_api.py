@@ -54,7 +54,10 @@ class ChatCompletionRequest(BaseModel):
     model: str = "dummy"
     messages: List[ChatMessage]
     max_tokens: Optional[int] = Field(default=64, ge=1, le=8192)
-    temperature: Optional[float] = Field(default=0.0, ge=0.0, le=2.0)
+    temperature: Optional[float] = Field(default=0.7, ge=0.0, le=2.0)
+    top_p: Optional[float] = Field(default=0.9, ge=0.0, le=1.0)
+    top_k: Optional[int] = Field(default=50, ge=0)
+    repetition_penalty: Optional[float] = Field(default=1.2, ge=0.0, le=10.0)
     stream: bool = False
 
 
@@ -89,6 +92,9 @@ async def chat_completions(body: ChatCompletionRequest) -> Any:
                     prompt_ids,
                     max_tokens=body.max_tokens,
                     temperature=body.temperature,
+                    top_p=body.top_p,
+                    top_k=body.top_k,
+                    repetition_penalty=body.repetition_penalty,
                     eos_token_id=_eos_token_id,
                 ):
                     chunk = {
@@ -122,6 +128,9 @@ async def chat_completions(body: ChatCompletionRequest) -> Any:
             prompt_ids,
             max_tokens=body.max_tokens,
             temperature=body.temperature,
+            top_p=body.top_p,
+            top_k=body.top_k,
+            repetition_penalty=body.repetition_penalty,
             eos_token_id=_eos_token_id,
         ):
             out.append(tid)

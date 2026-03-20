@@ -44,10 +44,61 @@ class AsyncLLMEngine:
             acc += n
         return idxs
 
-    def _sample(self, logits_row: torch.Tensor, temperature: float) -> int:
+    @staticmethod
+    def _apply_repetition_penalty(
+        logits: torch.Tensor,
+        token_ids: list[int],
+        penalty: float,
+    ) -> torch.Tensor:
+        """对已出现过的 token 施加重复惩罚（>1 抑制，<1 鼓励）。"""
+        if penalty == 1.0 or not token_ids:
+            return logits
+        seen = torch.tensor(list(set(token_ids)), dtype=torch.long, device=logits.device)
+        scores = logits[seen]
+        # 正 logit → 除以 penalty；负 logit → 乘以 penalty（与 HF 实现一致）
+        scores = torch.where(scores > 0, scores / penalty, scores * penalty)
+        logits = logits.clone()
+        logits[seen] = scores
+        return logits
+
+    @staticmethod
+    def _apply_top_k(logits: torch.Tensor, k: int) -> torch.Tensor:
+        if k <= 0 or k >= logits.shape[-1]:
+            return logits
+        top_k_vals = torch.topk(logits, k).values
+        logits = logits.clone()
+        logits[logits < top_k_vals[..., -1]] = float("-inf")
+        return logits
+
+    @staticmethod
+    def _apply_top_p(logits: torch.Tensor, p: float) -> torch.Tensor:
+        if p >= 1.0:
+            return logits
+        sorted_logits, sorted_idx = torch.sort(logits, descending=True)
+        cum_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+        mask = cum_probs - torch.softmax(sorted_logits, dim=-1) >= p
+        sorted_logits[mask] = float("-inf")
+        logits = logits.clone()
+        logits.scatter_(0, sorted_idx, sorted_logits)
+        return logits
+
+    def _sample(self, logits_row: torch.Tensor, seq: "Sequence") -> int:
+        temperature = seq.temperature
+        rep_penalty = seq.repetition_penalty
+        top_k = seq.top_k
+        top_p = seq.top_p
+
+        logits = logits_row
+        all_ids = seq.prompt_ids + seq.output_ids
+        logits = self._apply_repetition_penalty(logits, all_ids, rep_penalty)
+
         if temperature <= 0:
-            return int(logits_row.argmax().item())
-        probs = torch.softmax(logits_row / temperature, dim=-1)
+            return int(logits.argmax().item())
+
+        logits = logits / temperature
+        logits = self._apply_top_k(logits, top_k)
+        logits = self._apply_top_p(logits, top_p)
+        probs = torch.softmax(logits, dim=-1)
         return int(torch.multinomial(probs, 1).item())
 
     def step(self) -> bool:
@@ -76,7 +127,7 @@ class AsyncLLMEngine:
                 n = sched_out.num_tokens_per_seq[i]
                 seq.num_computed_tokens += n
                 if seq.is_prefill_done():
-                    tid = self._sample(row, seq.temperature)
+                    tid = self._sample(row, seq)
                     seq.output_ids.append(tid)
                     dlog("engine", f"  seq[{seq.seq_id}] prefill done, first token={tid}, "
                          f"logits_top5={torch.topk(row, 5).indices.tolist()}")
@@ -89,7 +140,7 @@ class AsyncLLMEngine:
                         self.block_manager.free_sequence(seq.seq_id)
                         self._running = [s for s in self._running if s.seq_id != seq.seq_id]
             else:
-                tid = self._sample(row, seq.temperature)
+                tid = self._sample(row, seq)
                 seq.output_ids.append(tid)
                 seq.num_computed_tokens += 1
                 dlog("engine", f"  seq[{seq.seq_id}] decode token={tid}, "
@@ -113,13 +164,20 @@ class AsyncLLMEngine:
         prompt_ids: List[int],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        repetition_penalty: Optional[float] = None,
         eos_token_id: Optional[int] = None,
     ) -> Sequence:
+        cfg = self.runner.config
         return Sequence(
             seq_id=next(self._id_gen),
             prompt_ids=prompt_ids,
-            max_tokens=max_tokens or self.runner.config.max_tokens,
-            temperature=temperature if temperature is not None else self.runner.config.temperature,
+            max_tokens=max_tokens or cfg.max_tokens,
+            temperature=temperature if temperature is not None else cfg.temperature,
+            top_p=top_p if top_p is not None else cfg.top_p,
+            top_k=top_k if top_k is not None else cfg.top_k,
+            repetition_penalty=repetition_penalty if repetition_penalty is not None else cfg.repetition_penalty,
             eos_token_id=eos_token_id,
         )
 
@@ -128,12 +186,18 @@ class AsyncLLMEngine:
         prompt_ids: List[int],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        repetition_penalty: Optional[float] = None,
         eos_token_id: Optional[int] = None,
     ) -> AsyncIterator[int]:
         seq = self.create_sequence(
             prompt_ids,
             max_tokens=max_tokens,
             temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
             eos_token_id=eos_token_id,
         )
         self.add_sequence(seq)

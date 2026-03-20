@@ -21,6 +21,9 @@ def _run_sync(
     prompt_ids: List[int],
     max_tokens: int,
     temperature: float,
+    top_p: float,
+    top_k: int,
+    repetition_penalty: float,
     eos_token_id: int | None,
     decode_fn,
     verbose: bool,
@@ -30,6 +33,9 @@ def _run_sync(
         prompt_ids,
         max_tokens=max_tokens,
         temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
         eos_token_id=eos_token_id,
     )
     engine.add_sequence(seq)
@@ -56,7 +62,10 @@ def main() -> int:
     parser.add_argument("--model-path", "-m", help="模型目录（含 config.json）")
     parser.add_argument("--prompt", "-p", default="你好", help="输入 prompt")
     parser.add_argument("--max-tokens", "-n", type=int, default=32, help="最大生成 token 数")
-    parser.add_argument("--temperature", "-t", type=float, default=0.0, help="采样温度")
+    parser.add_argument("--temperature", "-t", type=float, default=0.7, help="采样温度（0 为贪心）")
+    parser.add_argument("--top-p", type=float, default=0.9, help="nucleus sampling 截断概率")
+    parser.add_argument("--top-k", type=int, default=50, help="top-k 截断（0 为不截断）")
+    parser.add_argument("--repetition-penalty", "--rep", type=float, default=1.2, help="重复惩罚 (>1 抑制重复)")
     parser.add_argument("--device", default=None, help="设备 (cpu/cuda/cuda:0)")
     parser.add_argument("--verbose", "-v", action="store_true", help="逐 token 打印")
     parser.add_argument("--debug", action="store_true", help="等同 --verbose，便于 pdb 等调试")
@@ -101,6 +110,9 @@ def main() -> int:
             prompt_ids,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
+            top_p=args.top_p,
+            top_k=args.top_k,
+            repetition_penalty=args.repetition_penalty,
             eos_token_id=eos_token_id,
             decode_fn=decode_fn,
             verbose=verbose,

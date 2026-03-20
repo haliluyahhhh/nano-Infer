@@ -71,6 +71,27 @@ nano-infer-run -m /path/to/Qwen2-1.5B -p "你好" -n 1
 
 日志会打印：`alignment`（模型参数数 vs checkpoint 张量数）、`SHAPE_MISMATCH`、`MISSING` / `UNEXPECTED`，以及 `OK: 全部模型参数...` 表示与 checkpoint 完全对齐。
 
+## 采样参数（抑制重复）
+
+`nano-infer-run` 默认已开启重复惩罚与 top-k / top-p 采样，无需额外设置。
+
+| 参数 | CLI 选项 | 默认值 | 说明 |
+|------|----------|--------|------|
+| temperature | `-t` / `--temperature` | 0.7 | 采样温度（0 为贪心） |
+| top_p | `--top-p` | 0.9 | Nucleus sampling 截断概率 |
+| top_k | `--top-k` | 50 | 仅保留概率最高的 k 个 token（0 = 不截断） |
+| repetition_penalty | `--repetition-penalty` / `--rep` | 1.2 | >1 抑制重复（HF 风格） |
+
+示例：
+
+```bash
+nano-infer-run -m /path/to/Qwen3-4B -p "北京是哪个国家的首都？" -n 64
+nano-infer-run -m /path/to/Qwen3-4B -p "北京是哪个国家的首都？" -n 64 -t 0.8 --rep 1.3 --top-k 40
+nano-infer-run -m /path/to/Qwen3-4B -p "北京是哪个国家的首都？" -n 64 -t 0 --rep 1.0  # 纯贪心
+```
+
+OpenAI API 同样支持 `temperature`、`top_p`、`top_k`、`repetition_penalty` 参数。
+
 ## 运行测试
 
 ```bash

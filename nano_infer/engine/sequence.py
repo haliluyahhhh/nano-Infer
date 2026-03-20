@@ -29,6 +29,9 @@ class Sequence:
     block_table: List[int] = field(default_factory=list)
     max_tokens: int = 64
     temperature: float = 0.0
+    top_p: float = 1.0
+    top_k: int = 0
+    repetition_penalty: float = 1.0
     eos_token_id: int | None = None
 
     @property
