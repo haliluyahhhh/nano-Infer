@@ -81,3 +81,14 @@ nano-infer-run -m /path/to/model -p "你好" -n 32 -v
 - `build_engine`：先 `load_hf_weights`，若存在 `layers.*.self_attn.q_proj.bias` 则设 `cfg.attention_bias=True`，再实例化模型并 `load_weights`。
 
 ---
+
+## 2025-03-18 权重加载详细对照报告
+
+**类型**：feat  
+**范围**：`models/weight_load_report.py`、`models/llama3.py`、`debug.py`、`docs/usage.md`
+
+### 做了什么
+- `NANO_INFER_DEBUG=weights` 时输出：模型参数数 vs checkpoint 交集、`missing`/`unexpected`、交集内 **SHAPE_MISMATCH**、`only_in_model` 与 `missing` 不一致告警。
+- `NANO_INFER_DEBUG_WEIGHTS_VERBOSE=1`：列出全部 missing/unexpected、按层统计已对齐键数量、形状不匹配最多 100 条。
+
+---

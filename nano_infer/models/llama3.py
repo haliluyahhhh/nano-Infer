@@ -205,6 +205,7 @@ class Llama3ForCausalLM(BaseCausalLM):
 
     def load_weights(self, state_dict: Dict[str, Any]) -> None:
         from nano_infer.models.weight_loader import map_hf_llama_to_nano
+        from nano_infer.models.weight_load_report import log_weight_load_report
 
         if any(k.startswith("layers.") or k.startswith("embed_tokens.") for k in state_dict.keys()):
             mapped = state_dict
@@ -217,13 +218,9 @@ class Llama3ForCausalLM(BaseCausalLM):
             mapped["lm_head.weight"] = mapped["embed_tokens.weight"]
             dlog("weights", "tie_word_embeddings: copied embed_tokens.weight -> lm_head.weight")
 
+        dlog("weights", f"about to load_state_dict: raw_keys={len(state_dict)} mapped_keys={len(mapped)}")
         ret = self.load_state_dict(mapped, strict=False)
-        dlog("weights", f"load_state_dict: provided={len(state_dict)} mapped={len(mapped)} "
-             f"missing={len(ret.missing_keys)} unexpected={len(ret.unexpected_keys)}")
-        if dbg_enabled("weights") and ret.missing_keys:
-            dlog("weights", f"  missing (first 10): {ret.missing_keys[:10]}")
-        if dbg_enabled("weights") and ret.unexpected_keys:
-            dlog("weights", f"  unexpected (first 10): {ret.unexpected_keys[:10]}")
+        log_weight_load_report(self, mapped, list(ret.missing_keys), list(ret.unexpected_keys))
 
 
 @register_model("dummy")

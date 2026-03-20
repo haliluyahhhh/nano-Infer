@@ -58,6 +58,16 @@ nano-infer-run -m /path/to/Qwen2-1.5B -p "你好" -n 8
 # 日志中应出现 attention_bias=True (from_weights=True)，且 missing=0
 ```
 
+### 权重加载详细对照
+
+```bash
+export NANO_INFER_DEBUG=weights
+export NANO_INFER_DEBUG_WEIGHTS_VERBOSE=1   # 列出全部 missing/unexpected、按层统计交集键数量
+nano-infer-run -m /path/to/Qwen2-1.5B -p "你好" -n 1
+```
+
+日志会打印：`alignment`（模型参数数 vs checkpoint 张量数）、`SHAPE_MISMATCH`、`MISSING` / `UNEXPECTED`，以及 `OK: 全部模型参数...` 表示与 checkpoint 完全对齐。
+
 ## 运行测试
 
 ```bash

@@ -9,7 +9,7 @@
 支持的模块名（tag）:
     tokenizer   — tokenize 编码/解码阶段
     config      — 配置加载与合并
-    weights     — 权重加载、键映射、missing/unexpected
+    weights     — 权重加载、键映射、missing/unexpected（可加 NANO_INFER_DEBUG_WEIGHTS_VERBOSE=1 输出完整键列表）
     model       — 模型 forward：embedding / norm / lm_head 形状与数值摘要
     attention   — QKV 投影、RoPE、paged attention 内部张量形状
     runner      — ModelRunner 输入准备、metadata、kv_cache 分配
