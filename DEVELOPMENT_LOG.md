@@ -82,6 +82,20 @@ nano-infer-run -m /path/to/model -p "你好" -n 32 -v
 
 ---
 
+## 2025-03-18 修复 Qwen2 绕过父类 load_weights
+
+**类型**：fix  
+**范围**：`models/qwen2.py`
+
+### 问题
+- `Qwen2ForCausalLM` 曾重写 `load_weights`，只调用 `load_state_dict`，未走 `Llama3ForCausalLM` 中的 `tie_word_embeddings` 与 `log_weight_load_report`。
+- 结果：调试看不到详细权重报告；`lm_head` 在 tie 模型上可能未绑定 embedding，输出异常。
+
+### 修改
+- 删除 Qwen2 的 `load_weights` 重写，完全继承父类实现。
+
+---
+
 ## 2025-03-18 权重加载详细对照报告
 
 **类型**：feat  
