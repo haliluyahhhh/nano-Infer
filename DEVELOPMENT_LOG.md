@@ -67,3 +67,17 @@ nano-infer-run -m /path/to/model -p "你好" -n 32 -v
 同时移除了旧的 `NANO_INFER_DEBUG_SHAPES` / `NANO_INFER_DEBUG_WEIGHTS` ad-hoc 检查，统一到新系统。
 
 ---
+
+## 2025-03-18 Qwen2：从权重推断 attention_bias
+
+**类型**：fix  
+**范围**：`engine/async_llm_engine.py`、`docs/usage.md`
+
+### 问题
+- Qwen2 官方 `config.json` 常省略 `attention_bias`，解析结果为 `False`，但 checkpoint 含 QKV bias（338 张量可证）。
+- 模型以 `Linear(..., bias=False)` 构建，`load_state_dict` 丢弃全部 bias，输出仍像乱码。
+
+### 修改
+- `build_engine`：先 `load_hf_weights`，若存在 `layers.*.self_attn.q_proj.bias` 则设 `cfg.attention_bias=True`，再实例化模型并 `load_weights`。
+
+---

@@ -157,19 +157,27 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
     from nano_infer.models.model_config import detect_model_type
 
     cfg = config
+    weights: dict | None = None
     if cfg.model_path:
         mc = load_model_config_from_path(cfg.model_path)
         cfg.merge_from_model_config(mc)
         detected = detect_model_type(cfg.model_path)
         if cfg.model_name in ("dummy", "llama3") or not cfg.model_name:
             cfg.model_name = detected
+        # 先加载权重再建模型：Qwen2 等 config 常不写 attention_bias，但 checkpoint 含 QKV bias；
+        # 若此处不检测，Linear(bias=False) 会丢弃全部 bias，输出接近随机。
+        weights = load_hf_weights(cfg.model_path, device=cfg.device)
+        has_qkv_bias = any(k.endswith("self_attn.q_proj.bias") for k in weights)
+        if has_qkv_bias:
+            cfg.attention_bias = True
         dlog("config", f"model_path={cfg.model_path} detected_type={detected} "
              f"final_model_name={cfg.model_name}")
         dlog("config", f"  hidden={cfg.hidden_size} layers={cfg.num_hidden_layers} "
              f"heads={cfg.num_attention_heads} kv_heads={cfg.num_key_value_heads} "
              f"vocab={cfg.vocab_size} intermediate={cfg.intermediate_size} "
              f"rope_theta={cfg.rope_theta} "
-             f"attention_bias={cfg.attention_bias} tie_word_embeddings={cfg.tie_word_embeddings}")
+             f"attention_bias={cfg.attention_bias} (from_weights={has_qkv_bias}) "
+             f"tie_word_embeddings={cfg.tie_word_embeddings}")
 
     cls = get_model_class(cfg.model_name)
     model = cls(cfg)
@@ -178,8 +186,7 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
     dlog("config", f"device={device} dtype={dtype}")
     model.to(device=device, dtype=dtype)
 
-    if cfg.model_path:
-        weights = load_hf_weights(cfg.model_path, device=cfg.device)
+    if cfg.model_path and weights is not None:
         model.load_weights(weights)
         model.to(device=device, dtype=dtype)
 

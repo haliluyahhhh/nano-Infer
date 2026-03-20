@@ -44,6 +44,20 @@ python -m nano_infer.entrypoints.openai_api
 | `NANO_INFER_SCHEDULER` | `fcfs` / `radix` | `fcfs` |
 | `NANO_INFER_ATTENTION_BACKEND` | `torch` / `triton` / `flashinfer` | `torch` |
 
+## Qwen2 与 `attention_bias`
+
+部分 Qwen2 的 `config.json` **不写** `attention_bias`，但 `model.safetensors` 里仍有 `q_proj/k_proj/v_proj` 的 **bias**。  
+`build_engine` 会在**创建模型前**扫描已映射权重里是否存在 `layers.*.self_attn.q_proj.bias`，若有则自动 `attention_bias=True`，否则 QKV bias 无法加载，输出会像乱码。
+
+离线验证：
+
+```bash
+nano-infer-run -m /path/to/Qwen2-1.5B -p "你好" -n 32 -v
+export NANO_INFER_DEBUG=config,weights
+nano-infer-run -m /path/to/Qwen2-1.5B -p "你好" -n 8
+# 日志中应出现 attention_bias=True (from_weights=True)，且 missing=0
+```
+
 ## 运行测试
 
 ```bash
