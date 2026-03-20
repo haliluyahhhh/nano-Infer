@@ -40,7 +40,9 @@ class EngineConfig:
     rms_norm_eps: float = 1e-6
     rope_theta: float = 10000.0
 
-    # 采样默认
+    attention_bias: bool = False
+    tie_word_embeddings: bool = False
+
     temperature: float = 0.0
     max_tokens: int = 64
 
@@ -74,6 +76,8 @@ class EngineConfig:
         self.intermediate_size = mc.intermediate_size
         self.rms_norm_eps = mc.rms_norm_eps
         self.rope_theta = mc.rope_theta
+        self.attention_bias = mc.attention_bias
+        self.tie_word_embeddings = mc.tie_word_embeddings
         if mc.max_position_embeddings > 0:
             self.max_model_len = min(self.max_model_len, mc.max_position_embeddings)
 

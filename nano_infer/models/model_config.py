@@ -22,9 +22,10 @@ class ModelConfig:
     num_key_value_heads: int = 32
     max_position_embeddings: int = 4096
     rms_norm_eps: float = 1e-6
-
-    # Llama3 / Qwen 可能用不同字段名
     rope_theta: float = 10000.0
+
+    attention_bias: bool = False
+    tie_word_embeddings: bool = False
 
     @property
     def head_dim(self) -> int:
@@ -58,6 +59,8 @@ class ModelConfig:
             max_position_embeddings=raw.get("max_position_embeddings", 4096),
             rms_norm_eps=float(raw.get("rms_norm_eps", 1e-6)),
             rope_theta=float(raw.get("rope_theta", 10000.0)),
+            attention_bias=bool(raw.get("attention_bias", raw.get("use_bias", False))),
+            tie_word_embeddings=bool(raw.get("tie_word_embeddings", False)),
         )
 
 

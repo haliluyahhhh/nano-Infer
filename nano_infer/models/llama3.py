@@ -89,9 +89,10 @@ class LlamaAttention(nn.Module):
         self.n_heads = n_heads
         self.n_kv = n_kv
         self.head_dim = head_dim
-        self.q_proj = nn.Linear(h, n_heads * head_dim, bias=False)
-        self.k_proj = nn.Linear(h, n_kv * head_dim, bias=False)
-        self.v_proj = nn.Linear(h, n_kv * head_dim, bias=False)
+        has_bias = getattr(config, "attention_bias", False)
+        self.q_proj = nn.Linear(h, n_heads * head_dim, bias=has_bias)
+        self.k_proj = nn.Linear(h, n_kv * head_dim, bias=has_bias)
+        self.v_proj = nn.Linear(h, n_kv * head_dim, bias=has_bias)
         self.o_proj = nn.Linear(n_heads * head_dim, h, bias=False)
 
     def forward(
@@ -210,6 +211,12 @@ class Llama3ForCausalLM(BaseCausalLM):
             dlog("weights", "state_dict already in nano format, skip re-mapping")
         else:
             mapped = map_hf_llama_to_nano(state_dict)
+
+        # tied embeddings: checkpoint 没有 lm_head.weight 时，复用 embed_tokens.weight
+        if "lm_head.weight" not in mapped and "embed_tokens.weight" in mapped:
+            mapped["lm_head.weight"] = mapped["embed_tokens.weight"]
+            dlog("weights", "tie_word_embeddings: copied embed_tokens.weight -> lm_head.weight")
+
         ret = self.load_state_dict(mapped, strict=False)
         dlog("weights", f"load_state_dict: provided={len(state_dict)} mapped={len(mapped)} "
              f"missing={len(ret.missing_keys)} unexpected={len(ret.unexpected_keys)}")

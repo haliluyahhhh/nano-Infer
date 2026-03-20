@@ -168,7 +168,8 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
         dlog("config", f"  hidden={cfg.hidden_size} layers={cfg.num_hidden_layers} "
              f"heads={cfg.num_attention_heads} kv_heads={cfg.num_key_value_heads} "
              f"vocab={cfg.vocab_size} intermediate={cfg.intermediate_size} "
-             f"rope_theta={cfg.rope_theta}")
+             f"rope_theta={cfg.rope_theta} "
+             f"attention_bias={cfg.attention_bias} tie_word_embeddings={cfg.tie_word_embeddings}")
 
     cls = get_model_class(cfg.model_name)
     model = cls(cfg)

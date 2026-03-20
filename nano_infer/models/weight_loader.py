@@ -13,60 +13,47 @@ from nano_infer.debug import log as dlog
 
 def _map_llama_hf_to_nano(hf_key: str) -> str | None:
     """
-    HF Llama 键 → nano-Infer Llama3 结构键。
-    映射不到则返回 None（跳过）。
+    HF 键 → nano-Infer 键。支持 Llama / Qwen2 等同构模型。
+
+    HF 层内命名变体：
+      - input_layernorm        (Qwen2/Llama3 标准)
+      - input_layer_norm       (部分 Llama2 变体)
+      - post_attention_layernorm (Qwen2/Llama3 标准)
+      - post_attention_layer_norm (部分变体)
+    全部映射到 nano 的 input_layers_norm / post_attention_layers_norm。
     """
-    # embed_tokens
     if hf_key == "model.embed_tokens.weight":
         return "embed_tokens.weight"
-
-    # layers
-    if hf_key.startswith("model.layers."):
-        rest = hf_key[len("model.layers.") :]
-        i = rest.split(".")[0]
-        # self_attn
-        if f"model.layers.{i}.self_attn.q_proj.weight" == hf_key:
-            return f"layers.{i}.self_attn.q_proj.weight"
-        if f"model.layers.{i}.self_attn.k_proj.weight" == hf_key:
-            return f"layers.{i}.self_attn.k_proj.weight"
-        if f"model.layers.{i}.self_attn.v_proj.weight" == hf_key:
-            return f"layers.{i}.self_attn.v_proj.weight"
-        if f"model.layers.{i}.self_attn.o_proj.weight" == hf_key:
-            return f"layers.{i}.self_attn.o_proj.weight"
-        # mlp
-        if f"model.layers.{i}.mlp.gate_proj.weight" == hf_key:
-            return f"layers.{i}.mlp.gate_proj.weight"
-        if f"model.layers.{i}.mlp.up_proj.weight" == hf_key:
-            return f"layers.{i}.mlp.up_proj.weight"
-        if f"model.layers.{i}.mlp.down_proj.weight" == hf_key:
-            return f"layers.{i}.mlp.down_proj.weight"
-        # norm
-        if f"model.layers.{i}.input_layers_norm.weight" == hf_key:
-            return f"layers.{i}.input_layers_norm.weight"
-        if f"model.layers.{i}.post_attention_layers_norm.weight" == hf_key:
-            return f"layers.{i}.post_attention_layers_norm.weight"
-        # 兼容 input_layer_norm（无 s）
-        if hf_key == f"model.layers.{i}.input_layers_norm.weight" or "input_layer_norm" in rest:
-            return f"layers.{i}.input_layers_norm.weight"
-        if hf_key == f"model.layers.{i}.post_attention_layers_norm.weight" or "post_attention_layers_norm" in rest:
-            return f"layers.{i}.post_attention_layers_norm.weight"
-
-    # model.norm（Llama2/3 皆用 model.norm）
     if hf_key == "model.norm.weight":
         return "norm.weight"
-
-    # lm_head
     if hf_key == "lm_head.weight":
         return "lm_head.weight"
 
-    # HF 变体：input_layer_norm（无 s）
-    if hf_key.startswith("model.layers.") and "input_layer_norm" in hf_key and "input_layers_norm" not in hf_key:
-        rest = hf_key[len("model.layers.") :]
-        i = rest.split(".")[0]
+    if not hf_key.startswith("model.layers."):
+        return None
+
+    rest = hf_key[len("model.layers."):]
+    i = rest.split(".")[0]
+    suffix = rest[len(i) + 1:]  # e.g. "self_attn.q_proj.weight"
+
+    # ── self_attn 投影 (weight + bias) ──
+    for proj in ("q_proj", "k_proj", "v_proj", "o_proj"):
+        for param in ("weight", "bias"):
+            if suffix == f"self_attn.{proj}.{param}":
+                return f"layers.{i}.self_attn.{proj}.{param}"
+
+    # ── MLP 投影 ──
+    for proj in ("gate_proj", "up_proj", "down_proj"):
+        if suffix == f"mlp.{proj}.weight":
+            return f"layers.{i}.mlp.{proj}.weight"
+
+    # ── LayerNorm（兼容所有 HF 命名变体）──
+    # input_layernorm / input_layer_norm / input_layers_norm → input_layers_norm
+    if suffix in ("input_layernorm.weight", "input_layer_norm.weight", "input_layers_norm.weight"):
         return f"layers.{i}.input_layers_norm.weight"
-    if hf_key.startswith("model.layers.") and "post_attention_layer_norm" in hf_key:
-        rest = hf_key[len("model.layers.") :]
-        i = rest.split(".")[0]
+    # post_attention_layernorm / post_attention_layer_norm → post_attention_layers_norm
+    if suffix in ("post_attention_layernorm.weight", "post_attention_layer_norm.weight",
+                   "post_attention_layers_norm.weight"):
         return f"layers.{i}.post_attention_layers_norm.weight"
 
     return None
