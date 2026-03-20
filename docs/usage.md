@@ -24,6 +24,7 @@ python scripts/download_model.py --local-dir ~/autodl-tmp/models/Qwen2-1.5B
 | 模型 ID | 参数量 | 说明 |
 |---------|--------|------|
 | `Qwen/Qwen2-1.5B-Instruct` | 1.5B | 默认，下载快 |
+| `Qwen/Qwen3-0.6B` 等 | 0.6B+ | `model_type=qwen3`，独立模块 `models/qwen3.py`（含 q_norm/k_norm） |
 | `Qwen/Qwen2-7B-Instruct` | 7B | 效果更好，显存需求高 |
 | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | 1.1B | 轻量 |
 
@@ -45,6 +46,8 @@ python -m nano_infer.entrypoints.openai_api
 | `NANO_INFER_ATTENTION_BACKEND` | `torch` / `triton` / `flashinfer` | `torch` |
 
 ## Qwen2 与 `attention_bias`
+
+实现位于 `nano_infer.models.qwen2`（独立模块，不继承 Llama）。
 
 部分 Qwen2 的 `config.json` **不写** `attention_bias`，但 `model.safetensors` 里仍有 `q_proj/k_proj/v_proj` 的 **bias**。  
 `build_engine` 会在**创建模型前**扫描已映射权重里是否存在 `layers.*.self_attn.q_proj.bias`，若有则自动 `attention_bias=True`，否则 QKV bias 无法加载，输出会像乱码。

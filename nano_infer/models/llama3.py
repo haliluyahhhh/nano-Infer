@@ -85,6 +85,7 @@ class LlamaAttention(nn.Module):
         h = config.hidden_size
         n_heads = config.num_attention_heads
         n_kv = config.num_key_value_heads or n_heads
+        # Llama 仅按几何维度推导 head_dim，不使用 head_dim_override（Qwen3 见 models/qwen3.py）
         head_dim = h // n_heads
         self.n_heads = n_heads
         self.n_kv = n_kv
@@ -106,9 +107,6 @@ class LlamaAttention(nn.Module):
         q = self.q_proj(x).view(T, self.n_heads, self.head_dim)
         k = self.k_proj(x).view(T, self.n_kv, self.head_dim)
         v = self.v_proj(x).view(T, self.n_kv, self.head_dim)
-
-        # GQA 扩展不在这里做，由 paged_attention 内部处理。
-        # K/V 以紧凑的 n_kv 头存入 cache，节省内存。
 
         if hasattr(self.config, "rope_theta") and self.config.rope_theta:
             max_pos = int(positions.max().item()) + 1

@@ -13,7 +13,7 @@ from nano_infer.debug import log as dlog
 
 def _map_llama_hf_to_nano(hf_key: str) -> str | None:
     """
-    HF 键 → nano-Infer 键。支持 Llama / Qwen2 等同构模型。
+    HF 键 → nano-Infer 键。支持 Llama / Qwen2 / Qwen3（含 q_norm、k_norm）等。
 
     HF 层内命名变体：
       - input_layernorm        (Qwen2/Llama3 标准)
@@ -35,6 +35,12 @@ def _map_llama_hf_to_nano(hf_key: str) -> str | None:
     rest = hf_key[len("model.layers."):]
     i = rest.split(".")[0]
     suffix = rest[len(i) + 1:]  # e.g. "self_attn.q_proj.weight"
+
+    # ── Qwen3：RoPE 前的 Q/K RMSNorm ──
+    if suffix == "self_attn.q_norm.weight":
+        return f"layers.{i}.self_attn.q_norm.weight"
+    if suffix == "self_attn.k_norm.weight":
+        return f"layers.{i}.self_attn.k_norm.weight"
 
     # ── self_attn 投影 (weight + bias) ──
     for proj in ("q_proj", "k_proj", "v_proj", "o_proj"):

@@ -82,17 +82,46 @@ nano-infer-run -m /path/to/model -p "你好" -n 32 -v
 
 ---
 
-## 2025-03-18 修复 Qwen2 绕过父类 load_weights
+## 2025-03-18 Qwen3 与 Llama 解耦
 
-**类型**：fix  
-**范围**：`models/qwen2.py`
+**类型**：refactor  
+**范围**：`models/qwen3.py`、`models/llama3.py`、`models/model_config.py`、`config.py`、`async_llm_engine.py`、`docs/usage.md`
 
-### 问题
-- `Qwen2ForCausalLM` 曾重写 `load_weights`，只调用 `load_state_dict`，未走 `Llama3ForCausalLM` 中的 `tie_word_embeddings` 与 `log_weight_load_report`。
-- 结果：调试看不到详细权重报告；`lm_head` 在 tie 模型上可能未绑定 embedding，输出异常。
+### 内容
+- `Qwen3ForCausalLM` 在 `models/qwen3.py` **独立实现**（RMSNorm、RoPE、MLP、带 q_norm/k_norm 的 Attention、Decoder、load_weights），**不再继承 Llama**。
+- `LlamaAttention` 仅使用 `hidden_size // num_attention_heads` 作为 head_dim，移除 `use_qk_norm` / `q_norm` / `k_norm` 分支。
+- 删除 `EngineConfig.use_qk_norm` 与 `ModelConfig.use_qk_norm`；Qwen3 始终在自身 Attention 内启用 q/k norm。
+- `EngineConfig.head_dim` 属性（含 `head_dim_override`）仍供 **KV cache / Qwen3 投影** 与 HF `head_dim` 对齐；Llama 前向不读该 override。
 
-### 修改
-- 删除 Qwen2 的 `load_weights` 重写，完全继承父类实现。
+---
+
+## 2025-03-18 Qwen2 与 Llama 解耦
+
+**类型**：refactor  
+**范围**：`models/qwen2.py`、`DEVELOPMENT_LOG.md`、`docs/usage.md`、`docs/modules/README.md`
+
+### 内容
+- `Qwen2ForCausalLM` 在 `models/qwen2.py` **独立实现**（RMSNorm、RoPE、SwiGLU MLP、GQA Attention、Decoder、`load_weights`），**不再继承 `Llama3ForCausalLM`**。
+- 与 Qwen3 一致：`head_dim` 使用 `EngineConfig.head_dim`（可与 HF `head_dim` / KV cache 对齐）；**无** q_norm/k_norm。
+- 权重映射、tie、`log_weight_load_report` 仍在 `Qwen2ForCausalLM.load_weights` 内完成；`build_engine` 从权重推断 `attention_bias` 的逻辑不变。
+
+---
+
+## 2025-03-18 Qwen3：q_norm/k_norm、detect、权重映射（历史）
+
+**类型**：feat（已由上一节「解耦」部分替代实现方式）  
+**范围**：`weight_loader.py` 等仍映射 `self_attn.q_norm.weight` / `k_norm.weight`；`detect_model_type` 识别 `qwen3`；`build_engine` 按目录检测 `model_name`。
+
+---
+
+## 2025-03-18 修复 Qwen2 绕过父类 load_weights（历史）
+
+**类型**：fix（已由「Qwen2 与 Llama 解耦」替代：独立类内自带完整 `load_weights`）
+
+**范围**：原 `models/qwen2.py` 继承 Llama 时期
+
+### 曾用方案
+- 删除错误的 `load_weights` 重写，改继承 `Llama3ForCausalLM.load_weights`。
 
 ---
 

@@ -42,12 +42,15 @@ class EngineConfig:
 
     attention_bias: bool = False
     tie_word_embeddings: bool = False
+    head_dim_override: int | None = None
 
     temperature: float = 0.0
     max_tokens: int = 64
 
     @property
     def head_dim(self) -> int:
+        if self.head_dim_override is not None:
+            return self.head_dim_override
         return self.hidden_size // self.num_attention_heads
 
     @property
@@ -78,6 +81,7 @@ class EngineConfig:
         self.rope_theta = mc.rope_theta
         self.attention_bias = mc.attention_bias
         self.tie_word_embeddings = mc.tie_word_embeddings
+        self.head_dim_override = mc.head_dim_explicit
         if mc.max_position_embeddings > 0:
             self.max_model_len = min(self.max_model_len, mc.max_position_embeddings)
 

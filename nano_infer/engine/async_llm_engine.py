@@ -162,8 +162,7 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
         mc = load_model_config_from_path(cfg.model_path)
         cfg.merge_from_model_config(mc)
         detected = detect_model_type(cfg.model_path)
-        if cfg.model_name in ("dummy", "llama3") or not cfg.model_name:
-            cfg.model_name = detected
+        cfg.model_name = detected
         # 先加载权重再建模型：Qwen2 等 config 常不写 attention_bias，但 checkpoint 含 QKV bias；
         # 若此处不检测，Linear(bias=False) 会丢弃全部 bias，输出接近随机。
         weights = load_hf_weights(cfg.model_path, device=cfg.device)
@@ -174,6 +173,7 @@ def build_engine(config: EngineConfig) -> Tuple[AsyncLLMEngine, ModelRunner]:
              f"final_model_name={cfg.model_name}")
         dlog("config", f"  hidden={cfg.hidden_size} layers={cfg.num_hidden_layers} "
              f"heads={cfg.num_attention_heads} kv_heads={cfg.num_key_value_heads} "
+             f"head_dim={cfg.head_dim} head_dim_override={cfg.head_dim_override} "
              f"vocab={cfg.vocab_size} intermediate={cfg.intermediate_size} "
              f"rope_theta={cfg.rope_theta} "
              f"attention_bias={cfg.attention_bias} (from_weights={has_qkv_bias}) "

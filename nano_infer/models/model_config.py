@@ -26,9 +26,13 @@ class ModelConfig:
 
     attention_bias: bool = False
     tie_word_embeddings: bool = False
+    # HF Qwen3 等可能在 config 中显式给出 head_dim（与 hidden/num_heads 推导一致或用于校验）
+    head_dim_explicit: int | None = None
 
     @property
     def head_dim(self) -> int:
+        if self.head_dim_explicit is not None:
+            return self.head_dim_explicit
         return self.hidden_size // self.num_attention_heads
 
     @property
@@ -48,6 +52,9 @@ class ModelConfig:
         with open(p, encoding="utf-8") as f:
             raw = json.load(f)
 
+        hd = raw.get("head_dim")
+        head_dim_explicit = int(hd) if hd is not None else None
+
         # 兼容不同 HF 变体字段名
         return cls(
             vocab_size=raw.get("vocab_size", 32000),
@@ -61,13 +68,14 @@ class ModelConfig:
             rope_theta=float(raw.get("rope_theta", 10000.0)),
             attention_bias=bool(raw.get("attention_bias", raw.get("use_bias", False))),
             tie_word_embeddings=bool(raw.get("tie_word_embeddings", False)),
+            head_dim_explicit=head_dim_explicit,
         )
 
 
 def detect_model_type(model_path: str | Path) -> str:
     """
     从 config.json 的 model_type 推断 nano-Infer 模型名。
-    返回 "qwen2" | "llama3" | "dummy"。
+    返回 "qwen3" | "qwen2" | "llama3" | "dummy"。
     """
     p = Path(model_path)
     if p.is_dir():
@@ -79,6 +87,8 @@ def detect_model_type(model_path: str | Path) -> str:
     mt = raw.get("model_type", "").lower()
     arch = raw.get("architectures", [])
     arch_str = " ".join(str(a) for a in arch).lower()
+    if "qwen3" in mt or "qwen3" in arch_str:
+        return "qwen3"
     if "qwen2" in mt or "qwen2" in arch_str:
         return "qwen2"
     return "llama3"
